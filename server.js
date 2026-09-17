@@ -25,7 +25,9 @@ export async function createApp(env = process.env, provider = createBlizzard(env
   }
   function text(value, max = 100) { if (typeof value !== 'string' || !value.trim() || value.length > max) throw new ApiError('Invalid or missing text field.', 400); return value.trim(); }
   async function refresh(record) {
-    if (record.game !== 'retail' || (record.snapshot && Date.now() - Date.parse(record.snapshot.updatedAt) < TTL)) return record;
+    // Upgrade snapshots from before media diagnostics without waiting for the old cache.
+    const needsMediaUpgrade = record.snapshot?.source === 'Blizzard API' && !record.snapshot.mediaStatus;
+    if (record.game !== 'retail' || (record.snapshot && !needsMediaUpgrade && Date.now() - Date.parse(record.snapshot.updatedAt) < TTL)) return record;
     const failed = failures.get(record.id);
     if (failed && Date.now() < failed.until) {
       if (failed.error.status !== 404 && record.snapshot && Date.now() - Date.parse(record.snapshot.updatedAt) < 86400000) return { ...record, stale: true };

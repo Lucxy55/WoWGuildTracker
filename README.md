@@ -73,6 +73,8 @@ The app writes `DATA_DIR/tracker.json` atomically, outside the deployment folder
 
 ## Validation and limits
 
+Profiles saved before character media diagnostics are refreshed on their next detail request, even if their old one-hour cache is still fresh. The appearance panel distinguishes a failed media request (including its upstream HTTP status), an unsupported image address, and a successful response containing no image. No credentials or raw upstream error bodies are exposed.
+
 `npm test` uses isolated storage and mocked Blizzard responses to exercise HTTP authorization, approval privacy, persistence, game separation, cache coalescing and response mapping. Live Blizzard integration needs your credentials. This project does not create Azure resources or publish itself to GitHub.
 
 References: [Blizzard profile APIs](https://develop.battle.net/documentation/world-of-warcraft/profile-apis), [OAuth](https://develop.battle.net/documentation/guides/using-oauth), [Azure Node configuration](https://learn.microsoft.com/en-us/azure/app-service/configure-language-nodejs), [Azure quotas](https://learn.microsoft.com/en-us/azure/app-service/web-sites-monitor).

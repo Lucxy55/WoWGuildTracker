@@ -21,7 +21,12 @@ function identity(s) {
 function characterArt(c) {
   const url = c.snapshot?.characterRender;
   const safe = typeof url === 'string' && /^https:\/\/render(?:-(?:eu|us|kr|tw))?\.worldofwarcraft\.com\//.test(url);
-  const fallback = c.game === 'forever' ? 'Character renders are not yet available for Forever.' : 'Blizzard has no character render available. It may appear after your next in-game logout and profile refresh.';
+  const status = c.snapshot?.mediaStatus;
+  let fallback = 'This saved profile has no image information yet. A successful profile refresh is needed.';
+  if (c.game === 'forever') fallback = 'Character renders are not yet available for Forever.';
+  else if (status?.state === 'request-failed') fallback = `The character media request failed${Number.isInteger(status.httpStatus) ? ` (Blizzard HTTP ${status.httpStatus})` : ' (connection or timeout error)'}. Your other profile data is still available.`;
+  else if (status?.state === 'unsupported-url') fallback = 'Blizzard returned an image address that this app does not yet support. This needs an app update.';
+  else if (status?.state === 'no-image') fallback = 'Blizzard returned no character image in its media response. Try again after your next in-game logout and profile refresh.';
   return `<figure class="character-art"><div class="render-stage"><div class="render-fallback" ${safe ? 'hidden' : ''}><span aria-hidden="true">◇</span><p>${esc(fallback)}</p></div>${safe ? `<img class="character-render" src="${esc(url)}" alt="${esc(c.name)} — character appearance from Blizzard" width="960" height="720" decoding="async" referrerpolicy="no-referrer">` : ''}</div><figcaption>Character appearance · ${safe ? 'Blizzard Armory render' : 'Image unavailable'}</figcaption></figure>`;
 }
 document.addEventListener('error', e => {

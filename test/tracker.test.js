@@ -113,3 +113,19 @@ test('stale fallback, failure backoff, 404 deletion and revocation during refres
   await fetch(origin + '/api/owner/characters/ccc', { method: 'PATCH', headers: { Authorization: `Bearer ${secret}`, 'Content-Type': 'application/json' }, body: JSON.stringify({ approved: false }) });
   release(); assert.equal((await inFlight).status, 404);
 });
+
+test('fresh pre-media snapshots upgrade once and then reuse the cache', async t => {
+  const dir = await mkdtemp(join(tmpdir(), 'guild-media-upgrade-'));
+  const snapshot = { source: 'Blizzard API', updatedAt: new Date().toISOString(), itemLevel: 100 };
+  await writeFile(join(dir, 'tracker.json'), JSON.stringify({ characters: [{ id: 'aaa', name: 'Tester', realm: 'draenor', game: 'retail', approved: true, raider: true, snapshot }] }));
+  let calls = 0;
+  const server = await createApp({ DATA_DIR: dir }, { character: async () => { calls++; return { ...snapshot, characterRender: null, mediaStatus: { state: 'no-image' } }; } });
+  await new Promise(r => server.listen(0, '127.0.0.1', r));
+  t.after(async () => { await new Promise(r => server.close(r)); await rm(dir, { recursive: true, force: true }); });
+  const url = `http://127.0.0.1:${server.address().port}/api/characters/aaa`;
+  const result = await (await fetch(url)).json();
+  assert.equal(result.snapshot.mediaStatus.state, 'no-image');
+  assert.equal(result.raider, true);
+  await fetch(url);
+  assert.equal(calls, 1, 'upgrade bypasses fresh legacy cache, but not subsequent current cache');
+});

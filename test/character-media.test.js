@@ -22,7 +22,7 @@ test('prefer full render, fall back to portrait or legacy media, reject untruste
 });
 
 test('optional media errors preserve character data and successful media uses profile namespace', async () => {
-  for (const status of [200, 404, 503]) {
+  for (const status of [200, 401, 403, 404, 429, 503]) {
     let mediaUrl;
     const provider = createBlizzard({ REGION: 'eu', BLIZZARD_CLIENT_ID: 'id', BLIZZARD_CLIENT_SECRET: 'secret' }, async url => {
       const path = new URL(url).pathname;
@@ -37,6 +37,8 @@ test('optional media errors preserve character data and successful media uses pr
     });
     const c = await provider.character({ game: 'retail', realm: 'draenor', name: 'Tester' });
     assert.equal(c.characterRender, status === 200 ? host + 'main.png' : null);
+    assert.equal(c.mediaStatus.state, status === 200 ? 'available' : 'request-failed');
+    if (status !== 200) assert.equal(c.mediaStatus.httpStatus, status);
     assert.equal(c.itemLevel, 120);
     assert.equal(c.stats.health, 100);
     assert.equal(mediaUrl.searchParams.get('namespace'), 'profile-eu');
