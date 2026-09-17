@@ -1,7 +1,7 @@
 # Docs for the Azure Web Apps Deploy action: https://github.com/Azure/webapps-deploy
 # More GitHub Actions for Azure: https://github.com/Azure/actions
 
-name: Build and deploy Node.js app to Azure Web App - wowguildtracker
+name: Build and deploy Node.js app to Azure Web App - WoWGuildTracker
 
 on:
   push:
@@ -51,15 +51,15 @@ jobs:
       - name: Login to Azure
         uses: azure/login@v2
         with:
-          client-id: ${{ secrets.AZUREAPPSERVICE_CLIENTID_41E25D9C41E04B6FAD51B04C6AC14679 }}
-          tenant-id: ${{ secrets.AZUREAPPSERVICE_TENANTID_AA38649DA0BA4834B6262E436CAE2498 }}
-          subscription-id: ${{ secrets.AZUREAPPSERVICE_SUBSCRIPTIONID_986B955D1D18479C8059F497C3C13E8B }}
+          client-id: ${{ secrets.AZUREAPPSERVICE_CLIENTID_7D6510E1680242EF897D37AF598ABB6B }}
+          tenant-id: ${{ secrets.AZUREAPPSERVICE_TENANTID_E1CE81B24BCF4A2E8E3BDAC2327C18CE }}
+          subscription-id: ${{ secrets.AZUREAPPSERVICE_SUBSCRIPTIONID_77F6BE8861144E97B636210B64CCB212 }}
 
       - name: 'Deploy to Azure Web App'
         id: deploy-to-webapp
         uses: azure/webapps-deploy@v3
         with:
-          app-name: 'wowguildtracker'
-          slot-name: 'production'
+          app-name: 'WoWGuildTracker'
+          slot-name: 'Production'
           package: .
           
