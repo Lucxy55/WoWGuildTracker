@@ -18,6 +18,20 @@ function icon(url, label) {
 function identity(s) {
   return '<span class="identity-line">' + icon(s.classIcon, s.class) + '<span>' + esc(s.class) + '</span></span><span class="identity-line spec-line">' + icon(s.specIcon, s.specialization) + '<span>' + esc(s.specialization) + '</span></span>';
 }
+function characterArt(c) {
+  const url = c.snapshot?.characterRender;
+  const safe = typeof url === 'string' && /^https:\/\/render(?:-(?:eu|us|kr|tw))?\.worldofwarcraft\.com\//.test(url);
+  const fallback = c.game === 'forever' ? 'Character renders are not yet available for Forever.' : 'Blizzard has no character render available. It may appear after your next in-game logout and profile refresh.';
+  return `<figure class="character-art"><div class="render-stage"><div class="render-fallback" ${safe ? 'hidden' : ''}><span aria-hidden="true">◇</span><p>${esc(fallback)}</p></div>${safe ? `<img class="character-render" src="${esc(url)}" alt="${esc(c.name)} — character appearance from Blizzard" width="960" height="720" decoding="async" referrerpolicy="no-referrer">` : ''}</div><figcaption>Character appearance · ${safe ? 'Blizzard Armory render' : 'Image unavailable'}</figcaption></figure>`;
+}
+document.addEventListener('error', e => {
+  if (!e.target.matches?.('.character-render')) return;
+  const figure = e.target.closest('.character-art');
+  e.target.hidden = true;
+  figure.querySelector('.render-fallback').hidden = false;
+  figure.querySelector('.render-fallback p').textContent = 'The character image could not be loaded. Your statistics and gear are still available below.';
+  figure.querySelector('figcaption').textContent = 'Character appearance · Image unavailable';
+}, true);
 document.addEventListener('error', e => { if (e.target.matches?.('.game-icon img')) e.target.hidden = true; }, true);
 function raidersSection() {
   const team = records.filter(c => c.approved && c.raider === true);
@@ -75,7 +89,7 @@ async function character(id) {
   const c = await api(`/api/characters/${id}`); if (turn !== generation) return;
   game = c.game; $('#game').value = game;
   const s = c.snapshot || {};
-  $('#view').innerHTML = `<a class="back" href="/">← Back to guild</a><div class="hero"><div><p class="eyebrow">${esc(c.game.toUpperCase())} / ${esc(c.realm)}</p><h1>${esc(c.name)}</h1><div class="character-identity">${identity(s)}</div><p>${esc(s.role)}${c.raider ? ' · Raider' : ''}</p></div><span class="badge">${esc(s.source || 'No profile yet')}</span></div>
+  $('#view').innerHTML = `<a class="back" href="/">← Back to guild</a><div class="character-hero panel"><div class="character-summary"><p class="eyebrow">${esc(c.game.toUpperCase())} / ${esc(c.realm)}</p><h1>${esc(c.name)}</h1><div class="character-identity">${identity(s)}</div><p>${esc(s.role)}${c.raider ? ' · Raider' : ''}</p><span class="badge">${esc(s.source || 'No profile yet')}</span></div>${characterArt(c)}</div>
   ${c.stale ? '<div class="note">Blizzard is unavailable. Showing the last saved profile, which may be out of date.</div>' : ''}${(s.warnings || []).map(w => `<div class="note">${esc(w)}</div>`).join('')}
   <div class="metrics">${metric('Equipped item level', s.itemLevel)}${metric('Level', s.level)}${metric('Role', s.role)}${metric('Faction', s.faction)}</div>
   <div class="grid"><section class="panel panel-content"><h2>Character statistics</h2>${Object.keys(s.stats || {}).length ? Object.entries(s.stats).map(([key,value]) => `<div class="stat"><span>${esc(key.replaceAll('_',' '))}</span><strong>${esc(value)}</strong></div>`).join('') : '<p>No statistics available.</p>'}<p class="subtle">Updated: ${esc(when(s.updatedAt))}</p>${s.lastLogin ? `<p class="subtle">Last in-game login: ${esc(when(s.lastLogin))}</p>` : ''}</section>
