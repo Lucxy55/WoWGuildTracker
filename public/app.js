@@ -11,9 +11,24 @@ async function api(path, method = 'GET', data) {
 }
 const when = value => value ? new Date(value).toLocaleString() : 'Not fetched yet';
 const metric = (label, value) => `<div class="metric"><span>${esc(label)}</span><strong>${esc(value)}</strong></div>`;
+function icon(url, label) {
+  const safe = typeof url === 'string' && /^https:\/\/render(?:-(?:eu|us|kr|tw))?\.worldofwarcraft\.com\/(?:eu\/|us\/|kr\/|tw\/)?icons\//.test(url);
+  return '<span class="game-icon" aria-hidden="true"><span>' + esc((label || '?').slice(0, 2).toUpperCase()) + '</span>' + (safe ? '<img src="' + esc(url) + '" alt="" width="28" height="28" loading="lazy" referrerpolicy="no-referrer">' : '') + '</span>';
+}
+function identity(s) {
+  return '<span class="identity-line">' + icon(s.classIcon, s.class) + '<span>' + esc(s.class) + '</span></span><span class="identity-line spec-line">' + icon(s.specIcon, s.specialization) + '<span>' + esc(s.specialization) + '</span></span>';
+}
+document.addEventListener('error', e => { if (e.target.matches?.('.game-icon img')) e.target.hidden = true; }, true);
+function raidersSection() {
+  const team = records.filter(c => c.approved && c.raider === true);
+  const counts = ['Tank', 'Healer', 'Damage'].map(role => role + ': ' + team.filter(c => c.snapshot?.role === role).length);
+  const unknown = team.filter(c => !['Tank', 'Healer', 'Damage'].includes(c.snapshot?.role)).length;
+  if (unknown) counts.push('Unknown role: ' + unknown);
+  return '<section class="panel raiders"><div class="toolbar"><h2>Raiders <span class="badge">' + team.length + '</span></h2><span class="subtle">' + counts.join(' · ') + '</span></div>' + (team.length ? '<div class="raider-grid">' + team.map(c => '<article class="raider-card"><a href="/character/' + c.id + '">' + esc(c.name) + '</a><p class="subtle">' + esc(c.realm) + '</p>' + identity(c.snapshot || {}) + '<p>' + esc(c.snapshot?.role) + ' · Item level ' + esc(c.snapshot?.itemLevel) + '</p></article>').join('') + '</div>' : '<div class="empty"><h2>No raiders selected yet</h2><p>' + (token ? 'Use Add to raiders in the roster below. Only approved characters appear in this section.' : 'The owner has not selected any approved raiders for this game yet.') + '</p></div>') + '</section>';
+}
 function row(c) {
   const s = c.snapshot || {};
-  return `<tr><td><a href="/character/${c.id}">${esc(c.name)}</a><small>${esc(c.realm)}</small></td><td>${esc(s.class)}<small>${esc(s.specialization)}</small></td><td>${esc(s.role)}</td><td class="gear-level">${esc(s.itemLevel)}</td><td><span class="badge ${c.approved ? '' : 'pending'}">${c.approved ? 'Approved' : 'Pending'}</span><small>${s.source ? esc(s.source) : 'Awaiting profile'}</small></td>${token ? `<td><button data-approve="${c.id}" data-value="${!c.approved}">${c.approved ? 'Unapprove' : 'Approve'}</button> <button data-remove="${c.id}">Remove</button></td>` : ''}</tr>`;
+  return `<tr><td><a href="/character/${c.id}">${esc(c.name)}</a><small>${esc(c.realm)}</small></td><td>${identity(s)}</td><td>${esc(s.role)}</td><td class="gear-level">${esc(s.itemLevel)}</td><td><span class="badge ${c.approved ? '' : 'pending'}">${c.approved ? 'Approved' : 'Pending'}</span>${c.raider ? ' <span class="badge">Raider</span>' : ''}<small>${s.source ? esc(s.source) : 'Awaiting profile'}</small></td>${token ? `<td><button data-raider="${c.id}" data-value="${!c.raider}" aria-pressed="${c.raider === true}">${c.raider ? 'Remove from raiders' : 'Add to raiders'}</button> <button data-approve="${c.id}" data-value="${!c.approved}">${c.approved ? 'Unapprove' : 'Approve'}</button> <button data-remove="${c.id}">Remove</button></td>` : ''}</tr>`;
 }
 function filterRows() {
   const query = $('#search').value.toLowerCase();
@@ -29,6 +44,7 @@ async function guild() {
   $('#view').innerHTML = `<div class="hero"><div><p class="eyebrow">${game === 'retail' ? 'RETAIL' : 'FOREVER'} / ${esc(config.region.toUpperCase())} / GUILD ROSTER</p><h1>${esc(config.guildName)}</h1><p>Your guild. Every character. One place.</p></div><span class="badge">${approved.length} approved members</span></div>
   ${game === 'forever' ? '<div class="note">Forever records are owner-entered. Live character API support has not yet been verified.</div>' : !config.liveConfigured ? '<div class="note">Live data is not connected yet. Add Blizzard API credentials to your server settings to load profiles.</div>' : ''}
   <div class="metrics">${metric('Approved characters', approved.length)}${metric('Average equipped item level', levels.length ? Math.round(levels.reduce((a,b) => a+b,0)/levels.length) : '—')}${metric('Tanks / Healers', `${approved.filter(c => c.snapshot?.role === 'Tank').length} / ${approved.filter(c => c.snapshot?.role === 'Healer').length}`)}${metric('Damage dealers', approved.filter(c => c.snapshot?.role === 'Damage').length)}</div>
+  ${raidersSection()}
   <section class="panel"><div class="toolbar"><h2>Character roster</h2><div class="actions"><input id="search" aria-label="Search characters" placeholder="Search name, class or role…">${game === 'retail' && config.liveConfigured ? '<button id="refresh">Refresh profiles</button>' : ''}</div></div><div class="table-wrap"><table><thead><tr><th>Character</th><th>Class / Specialization</th><th>Role</th><th>Item level</th><th>Status</th>${token ? '<th>Owner controls</th>' : ''}</tr></thead><tbody id="rows"></tbody></table></div><div id="empty-filter" class="empty"><h2>No characters to display</h2><p>${token ? 'Add a character below, then approve it to make it visible to everyone.' : 'Approved guild characters will appear here once the site owner adds them.'}</p></div></section>
   <p class="subtle">Profiles refresh on character visits, or with Refresh profiles. Cached for one hour. Average includes ${levels.length} available profiles.</p>
   ${token ? `<details open><summary>Owner workspace</summary><section class="panel panel-content"><h2>Add a character</h2><form id="add"><div class="fields"><label>Character name<input name="name" required maxlength="60"></label><label>${game === 'retail' ? 'Realm slug (for example, argent-dawn)' : 'Ruleset / identity (your label)'}<input name="realm" required maxlength="80"></label></div><button class="primary">Add for approval</button></form>${game === 'retail' ? '<hr><button id="load-roster">Find members in configured guild</button><div id="roster-results"></div>' : ''}</section></details>` : ''}`;
@@ -59,7 +75,7 @@ async function character(id) {
   const c = await api(`/api/characters/${id}`); if (turn !== generation) return;
   game = c.game; $('#game').value = game;
   const s = c.snapshot || {};
-  $('#view').innerHTML = `<a class="back" href="/">← Back to guild</a><div class="hero"><div><p class="eyebrow">${esc(c.game.toUpperCase())} / ${esc(c.realm)}</p><h1>${esc(c.name)}</h1><p>${esc(s.specialization)} ${esc(s.class)} · ${esc(s.role)}</p></div><span class="badge">${esc(s.source || 'No profile yet')}</span></div>
+  $('#view').innerHTML = `<a class="back" href="/">← Back to guild</a><div class="hero"><div><p class="eyebrow">${esc(c.game.toUpperCase())} / ${esc(c.realm)}</p><h1>${esc(c.name)}</h1><div class="character-identity">${identity(s)}</div><p>${esc(s.role)}${c.raider ? ' · Raider' : ''}</p></div><span class="badge">${esc(s.source || 'No profile yet')}</span></div>
   ${c.stale ? '<div class="note">Blizzard is unavailable. Showing the last saved profile, which may be out of date.</div>' : ''}${(s.warnings || []).map(w => `<div class="note">${esc(w)}</div>`).join('')}
   <div class="metrics">${metric('Equipped item level', s.itemLevel)}${metric('Level', s.level)}${metric('Role', s.role)}${metric('Faction', s.faction)}</div>
   <div class="grid"><section class="panel panel-content"><h2>Character statistics</h2>${Object.keys(s.stats || {}).length ? Object.entries(s.stats).map(([key,value]) => `<div class="stat"><span>${esc(key.replaceAll('_',' '))}</span><strong>${esc(value)}</strong></div>`).join('') : '<p>No statistics available.</p>'}<p class="subtle">Updated: ${esc(when(s.updatedAt))}</p>${s.lastLogin ? `<p class="subtle">Last in-game login: ${esc(when(s.lastLogin))}</p>` : ''}</section>
@@ -79,6 +95,8 @@ document.addEventListener('click', e => {
   if (link && !e.ctrlKey && !e.metaKey && !e.shiftKey && e.button === 0) { e.preventDefault(); history.pushState({}, '', link.getAttribute('href')); route(); }
   const approve = e.target.closest('[data-approve]');
   if (approve) action(async () => { await api(`/api/owner/characters/${approve.dataset.approve}`, 'PATCH', { approved: approve.dataset.value === 'true' }); await guild(); });
+  const raider = e.target.closest('[data-raider]');
+  if (raider) action(async () => { raider.disabled = true; try { await api('/api/owner/characters/' + raider.dataset.raider, 'PATCH', { raider: raider.dataset.value === 'true' }); await guild(); } finally { raider.disabled = false; } });
   const remove = e.target.closest('[data-remove]');
   if (remove && confirm('Remove this character from the tracker?')) action(async () => { await api(`/api/owner/characters/${remove.dataset.remove}`, 'DELETE'); await guild(); });
 });

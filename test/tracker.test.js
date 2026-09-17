@@ -24,6 +24,9 @@ test('approval, game separation, cache, persistence and access boundaries', asyn
   const added = await request('/api/owner/characters', 'POST', { game: 'retail', name: 'Tester', realm: 'argent-dawn' }, true);
   assert.equal(added.status, 201);
   const id = added.data.id;
+  assert.equal((await request(`/api/owner/characters/${id}`, 'PATCH', { raider: true })).status, 401);
+  assert.equal((await request(`/api/owner/characters/${id}`, 'PATCH', { raider: 'yes' }, true)).status, 400);
+  assert.equal((await request(`/api/owner/characters/${id}`, 'PATCH', { raider: true }, true)).status, 200);
   assert.deepEqual((await request('/api/characters')).data, []);
   assert.equal((await request(`/api/characters/${id}`)).status, 404);
   assert.equal((await request(`/api/owner/characters/${id}`, 'PATCH', { approved: true })).status, 401);
@@ -32,6 +35,7 @@ test('approval, game separation, cache, persistence and access boundaries', asyn
   assert.equal(calls, 1, 'concurrent requests are deduplicated');
   await request(`/api/characters/${id}`); assert.equal(calls, 1, 'cached profile reused');
   assert.equal((await request('/api/characters')).data.length, 1);
+  assert.equal((await request('/api/characters')).data[0].raider, true);
   assert.deepEqual((await request('/api/characters?game=forever')).data, []);
   const forever = await request('/api/owner/characters', 'POST', { game: 'forever', name: 'Tester', realm: 'Normal' }, true);
   const manual = { class: 'Mage', specialization: 'Frost', role: 'Damage', itemLevel: 60, stats: { intellect: 120 }, gear: [{ slot: 'Head', name: 'A helm', level: 60 }] };
@@ -43,6 +47,10 @@ test('approval, game separation, cache, persistence and access boundaries', asyn
   await new Promise(r => server.close(r)); server = await createApp(env, provider);
   await new Promise(r => server.listen(0, '127.0.0.1', r)); origin = `http://127.0.0.1:${server.address().port}`;
   assert.equal((await request('/api/characters')).data[0].snapshot.itemLevel, 100);
+  assert.equal((await request('/api/characters')).data[0].raider, true, 'raider membership survives restart');
+  await request(`/api/owner/characters/${id}`, 'PATCH', { raider: false }, true);
+  assert.equal((await request('/api/characters')).data[0].raider, false);
+  assert.equal((await request('/api/characters')).data[0].approved, true, 'removing raider membership preserves approval');
   await request(`/api/owner/characters/${id}`, 'PATCH', { approved: false }, true);
   assert.equal((await request(`/api/characters/${id}`)).status, 404);
   assert.equal((await fetch(origin + '/.env')).status, 404);
@@ -56,13 +64,18 @@ test('Blizzard OAuth, namespaces, normalization and partial equipment failure', 
     const path = new URL(url).pathname;
     if (path === '/token') return Response.json({ access_token: 'token', expires_in: 3600 });
     assert.equal(options.headers.Authorization, 'Bearer token');
+    if (path.includes('/media/')) return Response.json({ assets: [{ key: 'icon', value: 'https://render-eu.worldofwarcraft.com/icons/56/classicon_paladin.jpg' }] });
     if (path.endsWith('/equipment')) return new Response('', { status: 503 });
     if (path.endsWith('/statistics')) return Response.json({ health: 5000, strength: { effective: 200 } });
     if (path.includes('playable-specialization')) return Response.json({ role: { name: 'Tank' } });
-    return Response.json({ name: 'Tester', equipped_item_level: 100, character_class: { name: 'Paladin' }, active_spec: { id: 66, name: 'Protection' } });
+    return Response.json({ name: 'Tester', equipped_item_level: 100, character_class: { id: 2, name: 'Paladin' }, active_spec: { id: 66, name: 'Protection' } });
   });
   const result = await provider.character({ game: 'retail', name: 'Tester', realm: 'Argent-Dawn' });
   assert.equal(result.role, 'Tank'); assert.equal(result.stats.strength, 200);
+  assert.equal(result.classIcon, 'https://render-eu.worldofwarcraft.com/icons/56/classicon_paladin.jpg');
+  assert.equal(result.specIcon, result.classIcon);
+  await provider.character({ game: 'retail', name: 'Another', realm: 'Argent-Dawn' });
+  assert.equal(seen.filter(r => r.url.includes('/media/')).length, 2, 'media is cached across characters');
   assert.equal(result.warnings.length, 1); assert.deepEqual(result.gear, []);
   assert.equal(seen.filter(r => r.url.endsWith('/token')).length, 1);
   assert.ok(seen.some(r => r.url.includes('namespace=static-eu')));

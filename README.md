@@ -5,6 +5,8 @@ Two pages for **Node 24 LTS / Azure App Service Linux F1**. No production depend
 ## Features
 
 - Guild roster: equipped item level, class, specialization, role, search and explicit owner approval.
+- Raiders section: owner-managed membership, per-game team cards and role counts. Use **Add to raiders** / **Remove from raiders** in owner controls. Only approved characters appear publicly; raider membership does not approve a character. Membership persists across refreshes and restarts.
+- Class and specialization icons on rosters, raider cards and character details, using Blizzard's Retail media API. Media lookups are cached for a day per class/spec; images load directly from Blizzard. Existing profiles gain icons on their next profile refresh after the one-hour cache expires. Missing media and manual Forever profiles use text fallbacks.
 - Character details: stats, equipped gear and Retail Wowhead item links.
 - Owner-only guild roster discovery; selected members enter a pending queue.
 - Retail / Forever switcher with separate identities. **Forever is manual only** until a documented live API is verified. Enter class, spec, role, item level, stats and gear through owner controls. The identity label does not assume a Retail realm.

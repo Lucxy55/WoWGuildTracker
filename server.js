@@ -50,7 +50,7 @@ export async function createApp(env = process.env, provider = createBlizzard(env
   return createServer(async (req, res) => {
     res.setHeader('X-Content-Type-Options', 'nosniff');
     res.setHeader('Referrer-Policy', 'no-referrer');
-    res.setHeader('Content-Security-Policy', "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self'; connect-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'");
+    res.setHeader('Content-Security-Policy', "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' https://render.worldofwarcraft.com https://render-eu.worldofwarcraft.com https://render-us.worldofwarcraft.com https://render-kr.worldofwarcraft.com https://render-tw.worldofwarcraft.com; connect-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'");
     res.setHeader('Cache-Control', 'no-store');
     const send = (status, value) => { res.writeHead(status, { 'Content-Type': 'application/json; charset=utf-8' }); res.end(JSON.stringify(value)); };
     try {
@@ -90,7 +90,7 @@ export async function createApp(env = process.env, provider = createBlizzard(env
           const result = await refresh(record);
           const current = store.read().characters.find(c => c.id === record.id);
           if (!current || (!owner && !current.approved)) return send(404, { error: 'Character not found.' });
-          return send(200, { ...result, approved: current.approved });
+          return send(200, { ...result, approved: current.approved, raider: current.raider === true });
         }
         if (match[1] && req.method === 'DELETE') { await store.update(s => { s.characters = s.characters.filter(c => c.id !== record.id); }); return send(200, { ok: true }); }
         if (match[1] && req.method === 'PATCH') {
@@ -99,6 +99,10 @@ export async function createApp(env = process.env, provider = createBlizzard(env
             const c = s.characters.find(c => c.id === record.id);
             if (!c) throw new ApiError('Character not found.', 404);
             if (typeof input.approved === 'boolean') c.approved = input.approved;
+            if (Object.hasOwn(input, 'raider')) {
+              if (typeof input.raider !== 'boolean') throw new ApiError('Raider status must be true or false.', 400);
+              c.raider = input.raider;
+            }
             if (input.manual) {
               if (c.game !== 'forever') throw new ApiError('Manual records are only available for Forever.', 400);
               const m = input.manual;
