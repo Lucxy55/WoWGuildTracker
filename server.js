@@ -5,7 +5,7 @@ import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { createStore } from './lib/store.js';
 import { createBlizzard, ApiError } from './lib/blizzard.js';
-import { validateEvent } from './lib/events.js';
+import { validateEvent, removeOccurrence } from './lib/events.js';
 
 const root = dirname(fileURLToPath(import.meta.url));
 const TTL = 60 * 60 * 1000;
@@ -17,7 +17,7 @@ export async function createApp(env = process.env, provider = createBlizzard(env
   const failures = new Map();
   let refreshQueue = Promise.resolve();
   let rosterCache, rosterUntil = 0;
-  const staticFiles = new Map(await Promise.all(['index.html', 'app.js', 'style.css', 'calendar.js', 'calendar-time.js'].map(async name => [name, await readFile(join(root, 'public', name))])));
+  const staticFiles = new Map(await Promise.all(['index.html', 'app.js', 'style.css', 'calendar.js', 'calendar-time.js', 'recurrence.js'].map(async name => [name, await readFile(join(root, 'public', name))])));
   function authorized(req) { return secret.length >= 32 && timingSafeEqual(digest(req.headers.authorization || ''), digest(`Bearer ${secret}`)); }
   async function body(req) {
     if (!req.headers['content-type']?.startsWith('application/json')) throw new ApiError('JSON body required.', 415);
@@ -80,8 +80,12 @@ export async function createApp(env = process.env, provider = createBlizzard(env
         await store.update(s => {
           const index = s.events.findIndex(e => e.id === eventMatch[1]);
           if (index < 0) throw new ApiError('Event not found.', 404);
-          if (details) s.events[index] = { ...details, id: eventMatch[1] };
-          else s.events.splice(index, 1);
+          if (details) {
+            if (s.events[index].recurrence) throw new ApiError('End future occurrences, then create a new series to change the schedule.', 409);
+            s.events[index] = { ...details, id: eventMatch[1] };
+          } else if (s.events[index].recurrence) {
+            removeOccurrence(s.events[index], url.searchParams.get('scope'), url.searchParams.get('occurrence'));
+          } else s.events.splice(index, 1);
         });
         return send(200, { ok: true });
       }

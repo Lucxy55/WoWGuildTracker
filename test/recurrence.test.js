@@ -1,0 +1,63 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import { mkdtemp, rm } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { createApp } from '../server.js';
+import { validateEvent, removeOccurrence } from '../lib/events.js';
+import { expandEvent } from '../public/recurrence.js';
+const sample = { title: 'Tuesday raid', description: '', game: 'retail', kind: 'raid', start: '2026-10-20T19:00:00.000Z', end: '2026-10-20T22:00:00.000Z', recurrence: { frequency: 'weekly', timeZone: 'Europe/London' } };
+const month = event => expandEvent(event, '2026-10-01T00:00:00Z', '2026-11-01T00:00:00Z');
+test('weekly wall times survive daylight saving and retain overnight dates', () => {
+  const event = validateEvent(sample);
+  assert.deepEqual(month(event).map(e => [e.start,e.end]), [['2026-10-20T19:00:00.000Z','2026-10-20T22:00:00.000Z'],['2026-10-27T20:00:00.000Z','2026-10-27T23:00:00.000Z']]);
+  const overnight = validateEvent({...sample,end:'2026-10-21T01:00:00.000Z'});
+  assert.equal(month(overnight)[1].end,'2026-10-28T02:00:00.000Z');
+  assert.equal(expandEvent(event,'2036-10-01','2036-11-01').length,4);
+  assert.throws(()=>expandEvent(event,'2026-01-01','2027-01-01'));
+  const newYork = validateEvent({...sample, start:'2026-10-27T00:00:00.000Z',end:'2026-10-27T03:00:00.000Z', recurrence:{frequency:'weekly',timeZone:'America/New_York'}});
+  assert.equal(expandEvent(newYork,'2026-11-01','2026-11-10')[0].start,'2026-11-03T01:00:00.000Z');
+});
+test('spring-forward gaps skip occurrences; fall-back repeated hours choose the first', () => {
+  const event = validateEvent({...sample,start:'2026-03-22T01:30:00.000Z',end:'2026-03-22T03:00:00.000Z'});
+  assert.deepEqual(expandEvent(event,'2026-03-22','2026-04-06').map(e=>e.start),['2026-03-22T01:30:00.000Z','2026-04-05T00:30:00.000Z']);
+  const fall = validateEvent({...sample,start:'2026-10-18T00:30:00.000Z',end:'2026-10-18T02:00:00.000Z'});
+  assert.equal(month(fall)[1].start,'2026-10-25T00:30:00.000Z');
+  assert.throws(()=>validateEvent({...sample,recurrence:{frequency:'daily',timeZone:'Europe/London'}}));
+  assert.throws(()=>validateEvent({...sample,recurrence:{frequency:'weekly',timeZone:'invalid'}}));
+});
+test('scoped deletions preserve earlier dates and reject nonexistent occurrences', () => {
+  const event=validateEvent(sample);
+  removeOccurrence(event,'one','2026-10-27T20:00:00.000Z');
+  assert.equal(month(event).length,1);
+  assert.throws(()=>removeOccurrence(event,'one','2026-10-27T20:00:00.000Z'));
+  assert.throws(()=>removeOccurrence(event,'future','2026-10-28T20:00:00.000Z'));
+  removeOccurrence(event,'future','2026-11-10T20:00:00.000Z');
+  assert.deepEqual(expandEvent(event,'2026-11-01','2026-12-01').map(e=>e.start),['2026-11-03T20:00:00.000Z']);
+  removeOccurrence(event,'future',sample.start);
+  assert.equal(month(event).length,0);
+});
+test('API persists weekly exceptions, protects mutations and isolates same-type series', async t => {
+  const dir=await mkdtemp(join(tmpdir(),'guild-recurring-'));
+  const secret='recurrence-test-secret-over-thirty-two-characters';
+  let server,base;
+  async function start(){server=await createApp({DATA_DIR:dir,ADMIN_TOKEN:secret});await new Promise(r=>server.listen(0,'127.0.0.1',r));base=`http://127.0.0.1:${server.address().port}`;}
+  await start(); t.after(async()=>{await new Promise(r=>server.close(r));await rm(dir,{recursive:true,force:true});});
+  const request=(path,method='GET',data,owner=true)=>fetch(base+path,{method,headers:{'Content-Type':'application/json',...(owner?{Authorization:`Bearer ${secret}`}:{})},body:data?JSON.stringify(data):undefined});
+  const first=await (await request('/api/owner/events','POST',sample)).json();
+  const second=await (await request('/api/owner/events','POST',sample)).json();
+  const path=`/api/owner/events/${first.id}`;
+  assert.equal((await request(path,'DELETE')).status,400);
+  assert.equal((await request(path,'PATCH',sample)).status,409);
+  const one='?'+new URLSearchParams({scope:'one',occurrence:'2026-10-27T20:00:00.000Z'});
+  assert.equal((await request(path+one,'DELETE',null,false)).status,401);
+  assert.equal((await request(path+one,'DELETE')).status,200);
+  const future='?'+new URLSearchParams({scope:'future',occurrence:'2026-11-10T20:00:00.000Z'});
+  assert.equal((await request(path+future,'DELETE')).status,200);
+  await new Promise(r=>server.close(r));await start();
+  const events=await (await request('/api/events')).json();
+  assert.equal(events.find(e=>e.id===first.id).recurrence.until,'2026-11-10T20:00:00.000Z');
+  assert.equal(month(events.find(e=>e.id===first.id)).length,1);
+  assert.equal(month(events.find(e=>e.id===second.id)).length,2);
+  assert.equal((await request('/recurrence.js')).status,200);
+});
