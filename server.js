@@ -5,6 +5,7 @@ import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { createStore } from './lib/store.js';
 import { createBlizzard, ApiError } from './lib/blizzard.js';
+import { validateEvent } from './lib/events.js';
 
 const root = dirname(fileURLToPath(import.meta.url));
 const TTL = 60 * 60 * 1000;
@@ -16,7 +17,7 @@ export async function createApp(env = process.env, provider = createBlizzard(env
   const failures = new Map();
   let refreshQueue = Promise.resolve();
   let rosterCache, rosterUntil = 0;
-  const staticFiles = new Map(await Promise.all(['index.html', 'app.js', 'style.css'].map(async name => [name, await readFile(join(root, 'public', name))])));
+  const staticFiles = new Map(await Promise.all(['index.html', 'app.js', 'style.css', 'calendar.js', 'calendar-time.js'].map(async name => [name, await readFile(join(root, 'public', name))])));
   function authorized(req) { return secret.length >= 32 && timingSafeEqual(digest(req.headers.authorization || ''), digest(`Bearer ${secret}`)); }
   async function body(req) {
     if (!req.headers['content-type']?.startsWith('application/json')) throw new ApiError('JSON body required.', 415);
@@ -63,6 +64,27 @@ export async function createApp(env = process.env, provider = createBlizzard(env
       if (path.startsWith('/api/owner/') && !owner) return send(401, { error: 'Owner access requires a valid token (configured with at least 32 characters).' });
       if (path === '/api/config' && req.method === 'GET') return send(200, { guildName: env.GUILD_NAME || 'Your Guild', region: env.REGION || 'eu', liveConfigured: !!(env.BLIZZARD_CLIENT_ID && env.BLIZZARD_CLIENT_SECRET) });
       if (path === '/api/owner/session' && req.method === 'GET') return send(200, { ok: true });
+      if (path === '/api/events' && req.method === 'GET') {
+        const game = url.searchParams.get('game') || 'retail';
+        if (!['retail', 'forever'].includes(game)) throw new ApiError('Invalid game.', 400);
+        return send(200, store.read().events.filter(e => e.game === game || e.game === 'all').sort((a, b) => a.start.localeCompare(b.start)));
+      }
+      if (path === '/api/owner/events' && req.method === 'POST') {
+        const event = { ...validateEvent(await body(req)), id: randomUUID() };
+        await store.update(s => { if (s.events.length >= 1000) throw new ApiError('Calendar limit reached. Remove old events before adding more.', 409); s.events.push(event); });
+        return send(201, event);
+      }
+      const eventMatch = path.match(/^\/api\/owner\/events\/([a-f0-9-]+)$/);
+      if (eventMatch && ['PATCH', 'DELETE'].includes(req.method)) {
+        const details = req.method === 'PATCH' ? validateEvent(await body(req)) : null;
+        await store.update(s => {
+          const index = s.events.findIndex(e => e.id === eventMatch[1]);
+          if (index < 0) throw new ApiError('Event not found.', 404);
+          if (details) s.events[index] = { ...details, id: eventMatch[1] };
+          else s.events.splice(index, 1);
+        });
+        return send(200, { ok: true });
+      }
       if (path === '/api/characters' && req.method === 'GET') {
         const game = url.searchParams.get('game') || 'retail';
         const characters = store.read().characters.filter(c => c.game === game && (owner || c.approved)).map(c => ({ ...c, snapshot: c.snapshot && (c.game === 'forever' || Date.now() - Date.parse(c.snapshot.updatedAt) < 86400000) ? c.snapshot : null }));
@@ -117,7 +139,7 @@ export async function createApp(env = process.env, provider = createBlizzard(env
           return send(200, { ok: true });
         }
       }
-      const file = path === '/' || path.startsWith('/character/') ? 'index.html' : path.slice(1);
+      const file = path === '/' || path === '/calendar' || path.startsWith('/character/') ? 'index.html' : path.slice(1);
       if (req.method === 'GET' && staticFiles.has(file)) { res.writeHead(200, { 'Content-Type': file.endsWith('.html') ? 'text/html; charset=utf-8' : file.endsWith('.css') ? 'text/css; charset=utf-8' : 'text/javascript; charset=utf-8' }); return res.end(staticFiles.get(file)); }
       send(404, { error: 'Not found.' });
     } catch (e) { send(e instanceof ApiError ? e.status : 500, { error: e instanceof ApiError ? e.message : 'The request could not be completed. Please try again.' }); }

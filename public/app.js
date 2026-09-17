@@ -1,3 +1,4 @@
+import { renderCalendar } from './calendar.js';
 const $ = selector => document.querySelector(selector);
 const esc = value => String(value ?? '—').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 let token = ''; // In memory only: never persist the owner secret in browser storage.
@@ -106,7 +107,16 @@ async function character(id) {
 async function action(fn) { try { await fn(); } catch (error) { notice(error.message); } }
 async function route() {
   notice('');
-  try { if (!config) config = await api('/api/config'); const match = location.pathname.match(/^\/character\/([a-f0-9-]+)$/); await (match ? character(match[1]) : guild()); }
+  try {
+    if (!config) config = await api('/api/config');
+    if (location.pathname === '/calendar') {
+      const turn = ++generation;
+      $('#view').innerHTML = '<p>Loading calendar…</p>';
+      await renderCalendar({ view: $('#view'), api, owner: !!token, game, esc, notice, isCurrent: () => turn === generation });
+    } else {
+      const match = location.pathname.match(/^\/character\/([a-f0-9-]+)$/); await (match ? character(match[1]) : guild());
+    }
+  }
   catch (e) { $('#view').innerHTML = `<a href="/">← Back to guild</a><div class="empty"><h1>Unable to load this view</h1><p>${esc(e.message)}</p><button id="retry">Try again</button></div>`; $('#retry').onclick = route; }
 }
 document.addEventListener('click', e => {
@@ -119,7 +129,7 @@ document.addEventListener('click', e => {
   const remove = e.target.closest('[data-remove]');
   if (remove && confirm('Remove this character from the tracker?')) action(async () => { await api(`/api/owner/characters/${remove.dataset.remove}`, 'DELETE'); await guild(); });
 });
-$('#game').onchange = () => { game = $('#game').value; localStorage.setItem('guild-game', game); history.pushState({}, '', '/'); route(); };
+$('#game').onchange = () => { game = $('#game').value; localStorage.setItem('guild-game', game); history.pushState({}, '', location.pathname === '/calendar' ? '/calendar' : '/'); route(); };
 $('#owner-toggle').onclick = () => { if (token) { token = ''; $('#owner-toggle').textContent = 'Owner access'; route(); } else $('#login').showModal(); };
 $('#cancel-login').onclick = () => $('#login').close();
 $('#login-form').onsubmit = async e => { e.preventDefault(); token = $('#token').value; try { await api('/api/owner/session'); $('#token').value = ''; $('#login-error').textContent = ''; $('#login').close(); $('#owner-toggle').textContent = 'Lock owner controls'; route(); } catch (error) { token = ''; $('#login-error').textContent = error.message; } };
